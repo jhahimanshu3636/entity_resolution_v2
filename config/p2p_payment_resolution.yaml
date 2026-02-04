@@ -1,0 +1,443 @@
+# P2P Payment Entity Resolution Configuration
+# Domain: Peer-to-Peer Payment Fraud Detection & User Entity Resolution
+
+domain: p2p_payment_resolution
+description: "Entity resolution for P2P payment systems - linking users across devices, IPs, and transactions to detect fraud patterns"
+
+# Entity Types in Scope
+entity_types:
+  - user_account
+  - payment_device
+  - ip_address
+  - transaction_pattern
+
+# ============================================================================
+# FEATURE EXTRACTION
+# ============================================================================
+features:
+  user_features:
+    # Identity attributes
+    - user_id
+    - email_address
+    - phone_number
+    - full_name
+    - date_of_birth
+    - registration_timestamp
+    
+    # Behavioral attributes
+    - account_age_days
+    - transaction_count
+    - avg_transaction_amount
+    - transaction_velocity_24h
+    - kyc_verification_status
+    - linked_bank_accounts
+    
+  device_features:
+    - device_id
+    - device_fingerprint
+    - device_type  # mobile, web, tablet
+    - os_version
+    - app_version
+    - screen_resolution
+    - timezone
+    - language_settings
+    
+  ip_features:
+    - ip_address
+    - ip_geolocation  # country, city, region
+    - isp_provider
+    - vpn_proxy_flag
+    - ip_reputation_score
+    - ip_first_seen_timestamp
+    
+  transaction_features:
+    - transaction_id
+    - transaction_amount
+    - transaction_currency
+    - transaction_timestamp
+    - sender_user_id
+    - receiver_user_id
+    - payment_method
+    - transaction_status
+    - reversal_flag
+    - dispute_flag
+
+# ============================================================================
+# SIMILARITY COMPUTATION
+# ============================================================================
+similarity:
+  # Email similarity
+  email:
+    algorithm: exact_match  # emails should match exactly or not at all
+    threshold: 1.0
+    weight: 0.25
+    case_sensitive: false
+    
+  # Phone similarity
+  phone:
+    algorithm: normalized_exact  # normalize country codes, then exact match
+    threshold: 1.0
+    weight: 0.20
+    normalization: e164_format  # +1234567890
+    
+  # Name similarity
+  name:
+    algorithm: jaro_winkler
+    threshold: 0.85
+    weight: 0.15
+    case_sensitive: false
+    remove_special_chars: true
+    
+  # Device fingerprint similarity
+  device_fingerprint:
+    algorithm: exact_match
+    threshold: 1.0
+    weight: 0.15
+    
+  # IP address similarity
+  ip_address:
+    algorithm: subnet_match  # /24 subnet match for related IPs
+    threshold: 0.8
+    weight: 0.10
+    
+  # Behavioral similarity
+  transaction_pattern:
+    algorithm: cosine_similarity  # on transaction behavior vectors
+    threshold: 0.7
+    weight: 0.15
+    features:
+      - avg_transaction_amount
+      - transaction_velocity
+      - active_hours_distribution
+      - recipient_diversity
+
+# ============================================================================
+# CONSTRAINT LAYER (CRITICAL FOR FRAUD DETECTION)
+# ============================================================================
+constraints:
+  
+  # HARD CONSTRAINTS - Edge Removal (Violations indicate separate entities)
+  hard:
+    
+    # Different verified identities are different users
+    - name: conflicting_verified_identity
+      type: hard
+      enabled: true
+      description: "Users with different verified KYC identities cannot be the same entity"
+      logic: |
+        if (record_a.kyc_verified AND record_b.kyc_verified):
+          if (record_a.kyc_full_name != record_b.kyc_full_name OR 
+              record_a.kyc_dob != record_b.kyc_dob OR
+              record_a.kyc_ssn != record_b.kyc_ssn):
+            REMOVE_EDGE
+    
+    # Conflicting bank accounts (different verified bank ownership)
+    - name: conflicting_bank_ownership
+      type: hard
+      enabled: true
+      description: "Different verified bank account owners indicate separate entities"
+      logic: |
+        if (record_a.verified_bank_account_owner != record_b.verified_bank_account_owner):
+          REMOVE_EDGE
+    
+    # Impossible geographic contradiction
+    - name: impossible_geolocation
+      type: hard
+      enabled: true
+      description: "Cannot be in two distant locations within short timeframe"
+      logic: |
+        if (distance(record_a.location, record_b.location) > 500km AND 
+            abs(record_a.timestamp - record_b.timestamp) < 1hour):
+          REMOVE_EDGE
+    
+    # Conflicting device OS families (iOS user can't be Android user simultaneously)
+    - name: conflicting_device_os
+      type: hard
+      enabled: true
+      description: "User cannot use iOS and Android simultaneously with different accounts"
+      logic: |
+        if (record_a.device_os_family != record_b.device_os_family AND
+            abs(record_a.timestamp - record_b.timestamp) < 24hours):
+          REMOVE_EDGE
+      
+    # Strong fraud indicators (linking to known fraudster)
+    - name: fraud_contamination
+      type: hard
+      enabled: true
+      description: "Legitimate user cannot be merged with confirmed fraud account"
+      logic: |
+        if ((record_a.fraud_confirmed AND NOT record_b.fraud_confirmed) OR
+            (record_b.fraud_confirmed AND NOT record_a.fraud_confirmed)):
+          REMOVE_EDGE
+  
+  # SOFT CONSTRAINTS - Edge Penalization (Suspicious but not definitive)
+  soft:
+    
+    # Low source trust (data quality issues)
+    - name: low_source_trust
+      type: soft
+      enabled: true
+      penalty: 0.3
+      description: "Penalize edges from untrusted data sources"
+      logic: |
+        if (record_a.source_trust_score < 0.5 OR record_b.source_trust_score < 0.5):
+          PENALIZE_BY_30_PERCENT
+    
+    # New account linking to old account (age mismatch)
+    - name: account_age_mismatch
+      type: soft
+      enabled: true
+      penalty: 0.25
+      description: "Linking very new account to very old account is suspicious"
+      logic: |
+        if (abs(record_a.account_age_days - record_b.account_age_days) > 365):
+          PENALIZE_BY_25_PERCENT
+    
+    # VPN/Proxy usage (legitimate users may use VPNs, but it's suspicious)
+    - name: vpn_proxy_usage
+      type: soft
+      enabled: true
+      penalty: 0.2
+      description: "VPN/Proxy usage reduces confidence in IP-based linking"
+      logic: |
+        if (record_a.vpn_flag OR record_b.vpn_flag):
+          PENALIZE_BY_20_PERCENT
+    
+    # Behavioral anomaly (transaction pattern doesn't match)
+    - name: behavioral_mismatch
+      type: soft
+      enabled: true
+      penalty: 0.3
+      description: "Very different transaction behaviors suggest different users"
+      logic: |
+        if (abs(record_a.avg_transaction_amount - record_b.avg_transaction_amount) > 1000 OR
+            record_a.transaction_frequency_category != record_b.transaction_frequency_category):
+          PENALIZE_BY_30_PERCENT
+    
+    # IP reputation (low reputation IPs are suspicious)
+    - name: low_ip_reputation
+      type: soft
+      enabled: true
+      penalty: 0.35
+      description: "Low IP reputation reduces linking confidence"
+      logic: |
+        if (record_a.ip_reputation_score < 0.3 OR record_b.ip_reputation_score < 0.3):
+          PENALIZE_BY_35_PERCENT
+
+# ============================================================================
+# GRAPH CONSTRUCTION & PRUNING
+# ============================================================================
+graph:
+  pruning:
+    top_k: 8  # Max 8 edges per node (lower than default to avoid fraud hubs)
+    min_threshold: 0.65  # Higher threshold for payment fraud (precision over recall)
+    hub_penalty: true  # Penalize nodes with many connections (potential fraud hubs)
+    max_degree: 15  # Hard limit on node degree
+    
+  normalization: minmax
+  
+  seed_cluster_threshold: 0.95  # Very high precision for payment seeds
+
+# ============================================================================
+# GRAPH EMBEDDINGS (Enhanced fraud detection)
+# ============================================================================
+embeddings:
+  enabled: true
+  algorithm: fastrp  # FastRP for speed and determinism
+  dimensions: 128  # Higher dimensions for complex fraud patterns
+  
+  # Weight configuration (α > β constraint)
+  alpha: 0.75  # Original similarity weight (dominant)
+  beta: 0.25   # Embedding similarity weight (supporting)
+  
+  # FastRP specific parameters
+  fastrp_params:
+    iterations: 5
+    normalization: true
+    random_seed: 42
+    
+  # Node2Vec alternative (if needed)
+  node2vec_params:
+    dimensions: 128
+    walk_length: 80
+    num_walks: 10
+    p: 1.0  # Return parameter
+    q: 1.0  # In-out parameter
+    random_seed: 42
+
+# ============================================================================
+# CLUSTERING
+# ============================================================================
+clustering:
+  algorithm: leiden  # Preferred for payment fraud
+  resolution: 1.2  # Higher resolution = smaller, tighter clusters (better for fraud)
+  seed: 42
+  
+  # Cluster size limits (fraud prevention)
+  min_cluster_size: 1  # Singleton entities allowed
+  max_cluster_size: 50  # Flag for review if cluster too large (fraud ring detection)
+  
+  # Alternative: Louvain
+  louvain_params:
+    resolution: 1.2
+    seed: 42
+
+# ============================================================================
+# CLUSTER VALIDATION (Critical for Payment Fraud)
+# ============================================================================
+validation:
+  
+  # Entropy thresholds (homogeneity of attributes within cluster)
+  entropy_threshold: 0.6  # Stricter than default (payment fraud needs precision)
+  
+  # Edge density (cohesion within cluster)
+  min_edge_density: 0.4  # Higher than default
+  
+  # Embedding cohesion (if embeddings enabled)
+  min_embedding_cohesion: 0.7  # Average cosine similarity within cluster
+  
+  # Conflict detection (incompatible attributes)
+  conflict_checks:
+    - email_conflict: true  # Different verified emails in same cluster
+    - phone_conflict: true  # Different verified phones in same cluster
+    - kyc_conflict: true    # Different KYC identities in same cluster
+    - device_os_conflict: true  # Conflicting device types
+  
+  # Fraud-specific validation
+  fraud_validation:
+    flag_large_clusters: true  # Large clusters may indicate fraud rings
+    large_cluster_threshold: 20
+    flag_rapid_growth: true  # Clusters growing too fast
+    max_records_per_day: 5
+
+# ============================================================================
+# CONFIDENCE SCORING
+# ============================================================================
+confidence:
+  
+  # Component weights for composite confidence score
+  components:
+    edge_strength: 0.30  # Internal edge quality
+    attribute_agreement: 0.25  # Attribute consistency
+    embedding_cohesion: 0.20  # Structural similarity
+    source_trust: 0.15  # Data source reliability
+    fraud_indicators: 0.10  # Absence of fraud signals
+  
+  # Minimum confidence threshold for output
+  min_confidence: 0.60  # Below this, flag for manual review
+  
+  # High confidence threshold (auto-action allowed)
+  high_confidence: 0.85
+
+# ============================================================================
+# FRAUD-SPECIFIC FEATURES
+# ============================================================================
+fraud_detection:
+  
+  # Fraud risk signals (increase entity resolution scrutiny)
+  risk_signals:
+    - multiple_failed_transactions
+    - chargebacks_disputes
+    - rapid_account_creation
+    - velocity_abuse  # Many transactions in short time
+    - unusual_send_receive_patterns
+    - linkage_to_known_fraud
+    - vpn_proxy_usage
+    - new_device_new_location
+    - round_amount_transfers  # $1000.00 instead of $987.53
+    
+  # Fraud ring detection (graph patterns)
+  fraud_patterns:
+    - circular_transfers  # A→B→C→A
+    - fan_out_pattern  # One sender to many receivers
+    - fan_in_pattern  # Many senders to one receiver
+    - rapid_liquidation  # Receive funds, immediately send out
+    
+  # Detection thresholds
+  thresholds:
+    suspicious_cluster_size: 15  # Clusters larger than this flagged
+    suspicious_transaction_velocity: 10  # Transactions per hour
+    suspicious_new_connections: 5  # New devices/IPs in 24h
+
+# ============================================================================
+# EXPLAINABILITY (Required for Fraud Investigations)
+# ============================================================================
+explainability:
+  
+  # Always include in explanations
+  mandatory_fields:
+    - strongest_edges  # Top 3 edges with reasons
+    - dominant_attributes  # Most common email, phone, name
+    - cluster_metrics  # Size, density, cohesion
+    - fraud_indicators  # Any red flags
+    - timeline  # First seen, last seen timestamps
+    
+  # Generate human-readable reasons
+  reason_templates:
+    exact_match: "Exact match on {attribute}: {value}"
+    high_similarity: "High similarity ({score:.2f}) on {attribute}"
+    device_match: "Same device fingerprint: {device_id}"
+    ip_match: "Same IP subnet: {ip_address}"
+    behavioral_match: "Similar transaction patterns (cosine: {score:.2f})"
+    graph_structure: "Strong graph connectivity (embedding similarity: {score:.2f})"
+
+# ============================================================================
+# LOGGING & MONITORING
+# ============================================================================
+logging:
+  level: INFO
+  format: json  # Structured logs for analysis
+  
+  log_stages:
+    - feature_extraction
+    - similarity_computation
+    - constraint_application
+    - graph_pruning
+    - clustering
+    - validation_repair
+    - entity_assignment
+  
+  # Log all constraint violations for audit
+  log_constraint_violations: true
+  
+  # Log fraud detections
+  log_fraud_signals: true
+
+# ============================================================================
+# PERFORMANCE & SCALABILITY
+# ============================================================================
+performance:
+  
+  # Caching
+  cache_features: true
+  cache_similarities: true
+  cache_embeddings: true
+  
+  # Parallelization
+  parallel_similarity_computation: true
+  num_workers: 4
+  
+  # Batch processing
+  batch_size: 1000  # Records per block
+  max_block_size: 5000  # Split larger blocks
+  
+  # Timeout limits
+  max_processing_time_seconds: 300  # 5 minutes per block
+
+# ============================================================================
+# OUTPUT SCHEMA
+# ============================================================================
+output:
+  format: json
+  include_intermediate_artifacts: true  # For debugging
+  
+  fields:
+    - entity_id
+    - record_ids
+    - confidence_score
+    - entity_type
+    - dominant_attributes
+    - explanation
+    - fraud_risk_score
+    - requires_manual_review
+    - created_timestamp
