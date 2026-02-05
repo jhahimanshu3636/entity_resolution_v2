@@ -168,9 +168,10 @@ The system uses YAML configuration files located in `config/`. The P2P payment c
 
 ## Documentation
 
-- **Implementation Plan**: [`brain/implementation_plan.md`](.gemini/antigravity/brain/31932c4d-11a1-4a2e-8d72-330036bde6d6/implementation_plan.md)
-- **Architecture Diagrams**: [`brain/architecture_diagrams.md`](.gemini/antigravity/brain/31932c4d-11a1-4a2e-8d72-330036bde6d6/architecture_diagrams.md)
-- **P2P Domain Specification**: [`brain/p2p_payment_domain_spec.md`](.gemini/antigravity/brain/31932c4d-11a1-4a2e-8d72-330036bde6d6/p2p_payment_domain_spec.md)
+- **Implementation Plan**: [docs/implementation_plan.md](docs/implementation_plan.md)
+- **Architecture Diagrams**: [docs/architecture_diagrams.md](docs/architecture_diagrams.md)
+- **P2P Domain Specification**: [docs/p2p_payment_domain_spec.md](docs/p2p_payment_domain_spec.md)
+- **Implementation Walkthrough**: [docs/walkthrough.md](docs/walkthrough.md)
 - **Instruction.md**: [instruction.md](instruction.md) (Original AID specification)
 
 ## Roadmap
