@@ -233,16 +233,9 @@ class GraphEdge(BaseModel):
     target: str = Field(..., description="Target record ID")
     similarity_vector: SimilarityVector = Field(..., description="Multi-dimensional similarity")
     base_edge_score: float = Field(..., ge=0.0, le=1.0, description="Aggregated base score")
-    refined_edge_score: Optional[float] = Field(
-        default=None,
-        ge=0.0,
-        le=1.0,
-        description="Score after embedding refinement"
-    )
-    constraints_applied: List[str] = Field(
-        default_factory=list,
-        description="List of constraint names applied"
-    )
+    refined_edge_score: Optional[float] = Field(default=None, ge=0.0, le=1.0, description="Score after embedding refinement")
+    embedding_similarity: Optional[float] = Field(default=None, description="Cosine similarity from embeddings")
+    constraints_applied: List[str] = Field(default_factory=list, description="List of constraint names applied")
     is_valid: bool = Field(default=True, description="Edge validity after constraints")
 
 

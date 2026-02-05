@@ -257,9 +257,25 @@ class EntityResolutionPipeline:
         G: nx.Graph,
         artifacts: PipelineArtifacts
     ) -> nx.Graph:
-        """Stages 7-8: Graph Embeddings & Refinement (optional)"""
-        # Placeholder - would use FastRP or Node2Vec
-        logger.info("embeddings_stage_skipped", reason="not_implemented_in_v1")
+        """Stages 7-8: Graph Embeddings & Refinement"""
+        
+        from graph_embeddings import generate_graph_embeddings, refine_with_embeddings
+        
+        stage_logger = StageLogger("graph_embeddings", artifacts.block_id)
+        stage_logger.start(nodes=G.number_of_nodes(), edges=G.number_of_edges())
+        
+        # Generate embeddings
+        embeddings = generate_graph_embeddings(G, self.config)
+        
+        # Refine edge weights with embeddings
+        if embeddings:
+            G = refine_with_embeddings(G, embeddings, self.config)
+        
+        stage_logger.complete(
+            embeddings_generated=len(embeddings),
+            edges_refined=G.number_of_edges()
+        )
+        
         return G
     
     def _stage_clustering(

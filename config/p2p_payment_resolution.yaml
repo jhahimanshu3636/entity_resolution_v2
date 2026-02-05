@@ -298,10 +298,10 @@ validation:
   
   # Conflict detection (incompatible attributes)
   conflict_checks:
-    - email_conflict: true  # Different verified emails in same cluster
-    - phone_conflict: true  # Different verified phones in same cluster
-    - kyc_conflict: true    # Different KYC identities in same cluster
-    - device_os_conflict: true  # Conflicting device types
+    email_conflict: true  # Different verified emails in same cluster
+    phone_conflict: true  # Different verified phones in same cluster
+    kyc_conflict: true    # Different KYC identities in same cluster
+    device_os_conflict: true  # Conflicting device types
   
   # Fraud-specific validation
   fraud_validation:

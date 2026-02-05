@@ -1,19 +1,19 @@
 """
-Configuration Management for Entity Resolution System
-====================================================
+Configuration Management
+========================
 
-Loads and validates configuration from YAML files.
-Supports domain-specific configurations for different use cases.
+Loads and validates entity resolution configuration from YAML files.
+
+Uses Pydantic for type validation and default values.
 
 Author: Entity Resolution System
-Domain: P2P Payment Fraud Detection
 """
 
-import yaml
-from pathlib import Path
-from typing import Dict, List, Optional, Any
-from pydantic import BaseModel, Field, validator
 from enum import Enum
+from typing import Dict, List, Any, Optional
+from pathlib import Path
+import yaml
+from pydantic import BaseModel, Field, validator
 
 
 # ============================================================================
@@ -31,13 +31,13 @@ class SimilarityAlgorithm(str, Enum):
     SUBNET_MATCH = "subnet_match"
 
 
-class GraphAlgorithm(str, Enum):
-    """Graph embedding algorithms"""
+class EmbeddingAlgorithm(Enum):
+    """Supported embedding algorithms"""
     FASTRP = "fastrp"
     NODE2VEC = "node2vec"
 
 
-class ClusteringAlgorithm(str, Enum):
+class ClusteringAlgorithm(Enum):
     """Clustering algorithms"""
     LEIDEN = "leiden"
     LOUVAIN = "louvain"
@@ -81,15 +81,21 @@ class GraphPruningConfig(BaseModel):
 
 
 class EmbeddingConfig(BaseModel):
-    """Graph embedding configuration"""
-    enabled: bool = True
-    algorithm: GraphAlgorithm = GraphAlgorithm.FASTRP
-    dimensions: int = Field(..., ge=16, le=512)
-    alpha: float = Field(..., ge=0.0, le=1.0, description="Original score weight")
-    beta: float = Field(..., ge=0.0, le=1.0, description="Embedding score weight")
+    """Configuration for graph embeddings"""
+    enabled: bool = Field(default=False, description="Enable embedding refinement")
+    algorithm: str = Field(default="fastrp", description="Embedding algorithm (fastrp or node2vec)")
+    dimensions: int = Field(default=128, description="Embedding dimensions")
+    alpha: float = Field(default=0.7, description="Original similarity weight")
+    beta: float = Field(default=0.3, description="Embedding similarity weight")
     
     # Algorithm-specific parameters
-    fastrp_params: Dict[str, Any] = Field(default_factory=dict)
+    fastrp_params: Dict[str, Any] = Field(
+        default_factory=lambda: {
+            "iterations": 5,
+            "normalization": True,
+            "random_seed": 42
+        }
+    )
     node2vec_params: Dict[str, Any] = Field(default_factory=dict)
     
     @validator('beta')
